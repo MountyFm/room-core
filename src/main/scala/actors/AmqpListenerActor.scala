@@ -59,6 +59,10 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
           )
         case RoomCore.GetPlaylistTracksGatewayResponse.routingKey =>
           roomService.getRoomAndRoomTracks(amqpMessage)
+        case RoomCore.GetCurrentUserRoomsRequest.routingKey =>
+          roomService.getCurrentUserRooms(amqpMessage)
+        case RoomCore.GetCurrentUserRoomsGatewayResponse.routingKey =>
+          roomService.saveRooms(amqpMessage)
         case _ =>
           log.info("something else")
       }

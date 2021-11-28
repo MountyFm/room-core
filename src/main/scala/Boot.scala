@@ -50,7 +50,7 @@ object Boot extends App with Serializers{
   val password = config.getString("rabbitmq.password")
   val virtualHost = config.getString("rabbitmq.virtualHost")
 
-  implicit val redis: Redis = Redis(config.getString("redis"))
+  implicit val redis: Redis = Redis(config.getConfig("redis"))
 
   val connection = RabbitMQConnection.rabbitMQConnection(
     username,

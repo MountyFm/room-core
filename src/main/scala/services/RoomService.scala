@@ -3,7 +3,8 @@ package services
 import akka.actor.ActorRef
 import kz.mounty.fm.amqp.messages.AMQPMessage
 import kz.mounty.fm.amqp.messages.MountyMessages.MountyApi
-import kz.mounty.fm.domain.requests.{GetPlaylistTracksGatewayResponseBody, GetRoomAndRoomTracksResponseBody, GetRoomsForExploreRequestBody, GetRoomsForExploreResponseBody}
+import kz.mounty.fm.domain.requests._
+import kz.mounty.fm.amqp.messages.MountyMessages.SpotifyGateway
 import kz.mounty.fm.domain.room.Room
 import kz.mounty.fm.domain.user.RoomUser
 import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ServerErrorRequestException}
@@ -15,7 +16,7 @@ import org.mongodb.scala.model.Filters.equal
 import repositories.RoomRepository
 import scredis.Redis
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 class RoomService(implicit val redis: Redis,
@@ -61,5 +62,27 @@ class RoomService(implicit val redis: Redis,
           publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange =  "X:mounty-api-out")
       }
     })
+  }
+
+  def getCurrentUserRooms(amqpMessage: AMQPMessage) = {
+    val parsedRequest = parse(amqpMessage.entity).extract[GetCurrentUserRoomsRequestBody]
+    val entity = GetCurrentUserRoomsGatewayRequestBody(parsedRequest.limit, parsedRequest.offset, parsedRequest.tokenKey)
+    publisher ! amqpMessage.copy(entity = write(entity), routingKey = SpotifyGateway.GetCurrentUserRoomsGatewayRequest.routingKey, exchange = "X:mounty-spotify-gateway-in")
+  }
+
+  def saveRooms(amqpMessage: AMQPMessage): Unit = {
+    val rooms = parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms
+
+    Future.sequence(rooms.map(room => roomRepository.create[Room](room))).map { _ =>
+      publisher ! amqpMessage.copy(entity = write(GetCurrentUserRoomsResponseBody(rooms)), routingKey = MountyApi.GetCurrentUserRoomsResponse.routingKey, exchange = "X:mounty-api-out")
+    } recover {
+      case e: Throwable =>
+        val error = ServerErrorRequestException(
+          ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+          Some(e.getMessage)
+        ).getExceptionInfo
+
+        publisher ! amqpMessage.copy(entity = write(error))
+    }
   }
 }
