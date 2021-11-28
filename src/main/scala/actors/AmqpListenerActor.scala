@@ -6,18 +6,18 @@ import kz.mounty.fm.amqp.messages.MountyMessages.RoomCore
 import kz.mounty.fm.amqp.messages.{AMQPMessage, MountyMessages}
 import kz.mounty.fm.serializers.Serializers
 import org.json4s.native.JsonMethods.parse
-import services.PlayerService
+import services.{PlayerService, RoomService}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.DurationInt
 
 
 object AmqpListenerActor {
-  def props()(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService): Props =
+  def props()(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService): Props =
     Props(new AmqpListenerActor())
 }
 
-class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService)
+class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService)
   extends Actor
     with ActorLogging
     with Serializers {
@@ -46,6 +46,8 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
           log.info("prev song pressed")
         case RoomCore.PlayerPauseGatewayResponse.routingKey =>
           log.info("pause song pressed")
+        case RoomCore.GetRoomsForExploreRequest.routingKey =>
+          roomService.getRoomsForExplore(amqpMessage)
         case _ =>
           log.info("something else")
       }

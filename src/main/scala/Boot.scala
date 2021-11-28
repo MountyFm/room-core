@@ -14,7 +14,7 @@ import org.mongodb.scala.{MongoClient, MongoCollection, MongoDatabase}
 import org.mongodb.scala.MongoClient.DEFAULT_CODEC_REGISTRY
 import org.mongodb.scala.bson.codecs.Macros._
 import scredis.Redis
-import services.PlayerService
+import services.{PlayerService, RoomService}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.DurationInt
@@ -96,6 +96,7 @@ object Boot extends App with Serializers{
 
   implicit val publisher: ActorRef = system.actorOf(AmqpPublisherActor.props(channel))
   implicit val playerService: PlayerService = new PlayerService()
+  implicit val roomService: RoomService = new RoomService()
   val listener: ActorRef = system.actorOf(AmqpListenerActor.props())
   channel.basicConsume("Q:mounty-room-core-queue", AmqpConsumer(listener))
   channel.basicConsume("Q:mounty-spotify-gateway-queue", AmqpConsumer(listener))
