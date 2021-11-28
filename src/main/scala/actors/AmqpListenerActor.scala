@@ -58,7 +58,7 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
             exchange = "X:spotify-gateway-in"
           )
         case RoomCore.GetPlaylistTracksGatewayResponse.routingKey =>
-
+          roomService.getRoomAndRoomTracks(amqpMessage)
         case _ =>
           log.info("something else")
       }
