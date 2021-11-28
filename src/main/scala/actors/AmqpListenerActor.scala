@@ -2,10 +2,12 @@ package actors
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.util.Timeout
-import kz.mounty.fm.amqp.messages.MountyMessages.RoomCore
+import kz.mounty.fm.amqp.messages.MountyMessages.{RoomCore, SpotifyGateway}
 import kz.mounty.fm.amqp.messages.{AMQPMessage, MountyMessages}
+import kz.mounty.fm.domain.requests.{GetPlaylistTracksGatewayRequestBody, GetRoomAndRoomTracksRequestBody}
 import kz.mounty.fm.serializers.Serializers
 import org.json4s.native.JsonMethods.parse
+import org.json4s.native.Serialization._
 import services.{PlayerService, RoomService}
 
 import scala.concurrent.ExecutionContext
@@ -48,6 +50,15 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
           log.info("pause song pressed")
         case RoomCore.GetRoomsForExploreRequest.routingKey =>
           roomService.getRoomsForExplore(amqpMessage)
+        case RoomCore.GetRoomsAndRoomTracksRequest.routingKey =>
+          val body = parse(amqpMessage.entity).extract[GetRoomAndRoomTracksRequestBody]
+          publisher ! amqpMessage.copy(
+            entity = write(GetPlaylistTracksGatewayRequestBody(playlistId = body.roomId, offset = body.offset, limit = body.limit, tokenKey = body.tokenKey)),
+            routingKey = SpotifyGateway.GetPlaylistTracksGatewayRequest.routingKey,
+            exchange = "X:spotify-gateway-in"
+          )
+        case RoomCore.GetPlaylistTracksGatewayResponse.routingKey =>
+
         case _ =>
           log.info("something else")
       }
