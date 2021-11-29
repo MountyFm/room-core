@@ -83,7 +83,8 @@ class RoomService(implicit val redis: Redis,
   def saveRooms(amqpMessage: AMQPMessage): Unit = {
     (for {
       rooms <- Future(parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms)
-      _ <- Future.sequence(rooms.map(room => roomRepository.create[Room](room)))
+      notSavedRooms <- filterNotSavedRooms(rooms)
+      _ <- Future.sequence(notSavedRooms.map(room => roomRepository.create[Room](room)))
     } yield
       publisher ! amqpMessage.copy(
         entity = write(GetCurrentUserRoomsResponseBody(rooms)),
@@ -149,5 +150,18 @@ class RoomService(implicit val redis: Redis,
       val reply = write(UpdateRoomResponseBody(false))
       publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.UpdateRoomResponse.routingKey, exchange = "X:mounty-api-out")
     }
+  }
+
+  def filterNotSavedRooms(rooms: Seq[Room]): Future[Seq[Room]] = {
+    for {
+      tuples <- Future.sequence {
+        rooms.map { room =>
+          roomRepository.findByFilter[Room](equal("id", room.id)).map {
+            case Some(_) => (room, true)
+            case None => (room, false)
+          }
+        }
+      }
+    } yield tuples.filter(_._2 == false).map(_._1)
   }
 }
