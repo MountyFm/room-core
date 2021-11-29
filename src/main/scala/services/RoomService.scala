@@ -89,11 +89,11 @@ class RoomService(implicit val redis: Redis,
   def saveRooms(amqpMessage: AMQPMessage): Unit = {
     (for {
       rooms <- Future(parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms)
-      notSavedRooms <- filterNotSavedRooms(rooms)
-      _ <- Future.sequence(notSavedRooms.map(room => roomRepository.create[Room](room)))
+      separatedRooms <- separateSavedAndNotSavedRooms(rooms)
+      _ <- Future.sequence(separatedRooms._2.map(room => roomRepository.create[Room](room)))
     } yield
       publisher ! amqpMessage.copy(
-        entity = write(GetCurrentUserRoomsResponseBody(rooms)),
+        entity = write(GetCurrentUserRoomsResponseBody(separatedRooms._1 ++ separatedRooms._2)),
         routingKey = MountyApi.GetCurrentUserRoomsResponse.routingKey,
         exchange = "X:mounty-api-out")
       ) recover {
@@ -164,16 +164,16 @@ class RoomService(implicit val redis: Redis,
     }
   }
 
-  def filterNotSavedRooms(rooms: Seq[Room]): Future[Seq[Room]] = {
+  def separateSavedAndNotSavedRooms(rooms: Seq[Room]): Future[(Seq[Room], Seq[Room])] = {
     for {
       tuples <- Future.sequence {
         rooms.map { room =>
           roomRepository.findByFilter[Room](equal("id", room.id)).map {
-            case Some(_) => (room, true)
+            case Some(r) => (r, true)
             case None => (room, false)
           }
         }
       }
-    } yield tuples.filter(_._2 == false).map(_._1)
+    } yield (tuples.filter(_._2 == true).map(_._1), tuples.filter(_._2 == false).map(_._1))
   }
 }
