@@ -33,14 +33,14 @@ class RoomService(implicit val redis: Redis,
     roomRepository.roomsBySizeAndFilter(size).onComplete {
       case Success(value) =>
         val body = GetRoomsForExploreResponseBody(value)
-        publisher ! amqpMessage.copy(entity = write(body),exchange =  "X:mounty-api-out", routingKey = MountyApi.GetRoomsForExploreResponse.routingKey)
+        publisher ! amqpMessage.copy(entity = write(body), exchange = "X:mounty-api-out", routingKey = MountyApi.GetRoomsForExploreResponse.routingKey)
       case Failure(exception) =>
         val error = ServerErrorRequestException(
           ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
           Some(exception.getMessage)
         )
         val reply = write(error)
-        publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange =  "X:mounty-api-out")
+        publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
   }
 
@@ -59,7 +59,7 @@ class RoomService(implicit val redis: Redis,
             Some("not found entity")
           )
           val reply = write(error)
-          publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange =  "X:mounty-api-out")
+          publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
       }
     })
   }
@@ -82,7 +82,24 @@ class RoomService(implicit val redis: Redis,
           Some(e.getMessage)
         ).getExceptionInfo
 
-        publisher ! amqpMessage.copy(entity = write(error))
+        publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
+  }
+
+  def getRoomByInviteCode(amqpMessage: AMQPMessage) = {
+    val parsedRequest = parse(amqpMessage.entity).extract[GetRoomByInviteCodeRequestBody]
+
+    roomRepository.findByFilter[Room](equal("inviteCode", parsedRequest.inviteCode))
+      .map {
+        case Some(room) =>
+          val response = GetRoomByInviteCodeResponseBody(room = room)
+          publisher ! amqpMessage.copy(entity = write(response), routingKey = MountyApi.GetRoomByInviteCodeResponse.routingKey, exchange = "X:mounty-api-out")
+        case None =>
+          val error = ServerErrorRequestException(
+            ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+            Some("not found entity")
+          ).getExceptionInfo
+          publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
+      }
   }
 }
