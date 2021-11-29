@@ -65,7 +65,7 @@ class PlayerService(implicit val redis: Redis,
           val error = ServerErrorRequestException(
             ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
             Some("token not found")
-          )
+          ).getMessage
           val reply = write(error)
           publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
       }
@@ -85,7 +85,7 @@ class PlayerService(implicit val redis: Redis,
         val error = ServerErrorRequestException(
           ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
           Some(e.getMessage)
-        )
+        ).getMessage
         val reply = write(error)
         publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange =  "X:mounty-api-out")
     }
