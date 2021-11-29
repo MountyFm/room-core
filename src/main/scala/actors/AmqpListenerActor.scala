@@ -65,6 +65,8 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
           roomService.saveRooms(amqpMessage)
         case RoomCore.GetRoomByInviteCodeRequest.routingKey =>
           roomService.getRoomByInviteCode(amqpMessage)
+        case RoomCore.UpdateRoomRequest.routingKey =>
+          roomService.updateRoom(amqpMessage)
         case _ =>
           log.info("something else")
       }
