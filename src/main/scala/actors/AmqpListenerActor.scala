@@ -55,7 +55,7 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
           publisher ! amqpMessage.copy(
             entity = write(GetPlaylistTracksGatewayRequestBody(playlistId = body.roomId, offset = body.offset, limit = body.limit, tokenKey = body.tokenKey)),
             routingKey = SpotifyGateway.GetPlaylistTracksGatewayRequest.routingKey,
-            exchange = "X:spotify-gateway-in"
+            exchange = "X:mounty-spotify-gateway-in"
           )
         case RoomCore.GetPlaylistTracksGatewayResponse.routingKey =>
           roomService.getRoomAndRoomTracks(amqpMessage)
