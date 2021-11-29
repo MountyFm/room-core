@@ -8,6 +8,7 @@ import kz.mounty.fm.amqp.messages.MountyMessages.SpotifyGateway
 import kz.mounty.fm.domain.room.Room
 import kz.mounty.fm.domain.user.{RoomUser, UserProfile}
 import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ServerErrorRequestException}
+import kz.mounty.fm.serializers.Serializers
 import org.bson.conversions.Bson
 import org.json4s.Formats
 import org.json4s.jackson.Serialization._
@@ -26,7 +27,7 @@ class RoomService(implicit val redis: Redis,
                   ex: ExecutionContext,
                   formats: Formats,
                   roomCol: MongoCollection[Room],
-                  userRoomCol: MongoCollection[RoomUser]) {
+                  userRoomCol: MongoCollection[RoomUser]) extends Serializers {
 
   val roomRepository = new RoomRepository
 
@@ -82,7 +83,7 @@ class RoomService(implicit val redis: Redis,
         val error = ServerErrorRequestException(
           ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
           Some(e.getMessage)
-        ).getExceptionInfo
+        )
 
         publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
@@ -100,14 +101,14 @@ class RoomService(implicit val redis: Redis,
           val error = ServerErrorRequestException(
             ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
             Some("not found entity")
-          ).getExceptionInfo
+          )
           publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
       } recover {
       case e: Throwable =>
         val error = ServerErrorRequestException(
           ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
           Some(e.getMessage)
-        ).getExceptionInfo
+        )
         publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
   }
@@ -130,7 +131,7 @@ class RoomService(implicit val redis: Redis,
           val error = ServerErrorRequestException(
             ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
             Some(exception.getMessage)
-          ).getExceptionInfo
+          )
 
           publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.UpdateRoomResponse.routingKey, exchange = "X:mounty-api-out")
       }

@@ -4,7 +4,7 @@ import akka.stream.Materializer
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
 import kz.mounty.fm.amqp.{AmqpConsumer, RabbitMQConnection}
-import kz.mounty.fm.domain.room.Room
+import kz.mounty.fm.domain.room.{Room, RoomStatus}
 import kz.mounty.fm.domain.user.{RoomUser, UserProfile}
 import kz.mounty.fm.serializers.{JodaCodec, Serializers}
 import org.bson.codecs.configuration.CodecRegistries
@@ -28,7 +28,7 @@ object Boot extends App with Serializers{
   implicit val timeout: Timeout = Timeout(5.seconds)
 
   val codecRegistry = fromRegistries(
-    fromProviders(classOf[Room]),
+    fromProviders(classOf[Room], classOf[RoomStatus]),
     CodecRegistries.fromCodecs(new JodaCodec()),
     DEFAULT_CODEC_REGISTRY)
 
@@ -73,14 +73,14 @@ object Boot extends App with Serializers{
 
   RabbitMQConnection.declareAndBindQueue(
     channel,
-    "Q:mounty-room-core-queue",
+    "Q:mounty-room-core-request-queue",
     "X:mounty-api-in",
     "mounty-messages.room-core.#"
   )
 
   RabbitMQConnection.declareExchange(
     channel,
-    "X:spotify-gateway-in",
+    "X:mounty-spotify-gateway-out",
     "topic"
   ) match {
     case Success(value) => system.log.info("succesfully declared exchange")
@@ -89,16 +89,16 @@ object Boot extends App with Serializers{
 
   RabbitMQConnection.declareAndBindQueue(
     channel,
-    "Q:mounty-spotify-gateway-queue",
-    "X:spotify-gateway-in",
-    "mounty-messages.user-profile-core.#"
+    "Q:mounty-room-core-response-queue",
+    "X:mounty-spotify-gateway-out",
+    "mounty-messages.room-core.#"
   )
 
   implicit val publisher: ActorRef = system.actorOf(AmqpPublisherActor.props(channel))
   implicit val playerService: PlayerService = new PlayerService()
   implicit val roomService: RoomService = new RoomService()
   val listener: ActorRef = system.actorOf(AmqpListenerActor.props())
-  channel.basicConsume("Q:mounty-room-core-queue", AmqpConsumer(listener))
-  channel.basicConsume("Q:mounty-spotify-gateway-queue", AmqpConsumer(listener))
+  channel.basicConsume("Q:mounty-room-core-request-queue", AmqpConsumer(listener))
+  channel.basicConsume("Q:mounty-room-core-response-queue", AmqpConsumer(listener))
 
 }
