@@ -48,8 +48,8 @@ class RoomService(implicit val redis: Redis,
   }
 
   def getRoomAndRoomTracks(amqpMessage: AMQPMessage) = {
-    val body = parse(amqpMessage.entity).extract[GetPlaylistTracksGatewayResponseBody]
     (for {
+      body <- Future(parse(amqpMessage.entity).extract[GetPlaylistTracksGatewayResponseBody])
       room <- roomRepository.findByFilter[Room](equal("id", body.roomId))
     } yield {
       room match {
@@ -64,7 +64,14 @@ class RoomService(implicit val redis: Redis,
           val reply = write(error)
           publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
       }
-    })
+    }) recover {
+      case e: Throwable =>
+        val error = ServerErrorRequestException(
+          ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+          Some(e.getMessage)
+        )
+        publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
+    }
   }
 
   def getCurrentUserRooms(amqpMessage: AMQPMessage) = {
@@ -74,17 +81,20 @@ class RoomService(implicit val redis: Redis,
   }
 
   def saveRooms(amqpMessage: AMQPMessage): Unit = {
-    val rooms = parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms
-
-    Future.sequence(rooms.map(room => roomRepository.create[Room](room))).map { _ =>
-      publisher ! amqpMessage.copy(entity = write(GetCurrentUserRoomsResponseBody(rooms)), routingKey = MountyApi.GetCurrentUserRoomsResponse.routingKey, exchange = "X:mounty-api-out")
-    } recover {
+    (for {
+      rooms <- Future(parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms)
+      _ <- Future.sequence(rooms.map(room => roomRepository.create[Room](room)))
+    } yield
+      publisher ! amqpMessage.copy(
+        entity = write(GetCurrentUserRoomsResponseBody(rooms)),
+        routingKey = MountyApi.GetCurrentUserRoomsResponse.routingKey,
+        exchange = "X:mounty-api-out")
+      ) recover {
       case e: Throwable =>
         val error = ServerErrorRequestException(
           ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
           Some(e.getMessage)
         )
-
         publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
   }
