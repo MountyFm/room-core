@@ -1,12 +1,13 @@
 package services
 
 import akka.actor.ActorRef
+import akka.util.Timeout
 import kz.mounty.fm.amqp.messages.AMQPMessage
 import kz.mounty.fm.amqp.messages.MountyMessages.MountyApi
 import kz.mounty.fm.domain.requests._
 import kz.mounty.fm.amqp.messages.MountyMessages.SpotifyGateway
 import kz.mounty.fm.domain.room.Room
-import kz.mounty.fm.domain.user.{RoomUser, UserProfile}
+import kz.mounty.fm.domain.user.{RoomUser, RoomUserType}
 import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ExceptionInfo, ServerErrorRequestException}
 import kz.mounty.fm.serializers.Serializers
 import org.bson.conversions.Bson
@@ -14,7 +15,7 @@ import org.json4s.Formats
 import org.json4s.jackson.Serialization._
 import org.json4s.native.JsonMethods._
 import org.mongodb.scala.MongoCollection
-import org.mongodb.scala.model.Filters.{bitsAllSet, equal}
+import org.mongodb.scala.model.Filters.equal
 import repositories.RoomRepository
 import scredis.Redis
 import org.mongodb.scala.model.Updates.set
@@ -27,7 +28,8 @@ class RoomService(implicit val redis: Redis,
                   ex: ExecutionContext,
                   formats: Formats,
                   roomCol: MongoCollection[Room],
-                  userRoomCol: MongoCollection[RoomUser]) extends Serializers {
+                  userRoomCol: MongoCollection[RoomUser],
+                  val timeout: Timeout) extends Serializers {
 
   val roomRepository = new RoomRepository
 
@@ -86,11 +88,14 @@ class RoomService(implicit val redis: Redis,
     publisher ! amqpMessage.copy(entity = write(entity), routingKey = SpotifyGateway.GetCurrentUserRoomsGatewayRequest.routingKey, exchange = "X:mounty-spotify-gateway-in")
   }
 
-  def saveRooms(amqpMessage: AMQPMessage): Unit = {
+  def saveRoomsAndCreateRoomUser(amqpMessage: AMQPMessage, roomUserService: RoomUserService): Unit = {
     (for {
-      rooms <- Future(parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody].rooms)
-      separatedRooms <- separateSavedAndNotSavedRooms(rooms)
-      _ <- Future.sequence(separatedRooms._2.map(room => roomRepository.create[Room](room)))
+      response <- Future(parse(amqpMessage.entity).extract[GetCurrentUserRoomsGatewayResponseBody])
+      separatedRooms <- separateSavedAndNotSavedRooms(response.rooms)
+      _ <- Future.sequence(separatedRooms._2.map { room =>
+        roomUserService.createRoomUserIfNotExist(response.userId, room.id, RoomUserType.CREATOR)
+        roomRepository.create[Room](room)
+      })
     } yield
       publisher ! amqpMessage.copy(
         entity = write(GetCurrentUserRoomsResponseBody(separatedRooms._1 ++ separatedRooms._2)),
@@ -143,6 +148,7 @@ class RoomService(implicit val redis: Redis,
     if (parsedRequest.title.isDefined) updatedBson :+= set("title", parsedRequest.title.get)
     if (parsedRequest.isPrivate.isDefined) updatedBson :+= set("isPrivate", parsedRequest.isPrivate.get)
     if (parsedRequest.inviteCode.isDefined) updatedBson :+= set("inviteCode", parsedRequest.inviteCode.get)
+    if (parsedRequest.isPrivate.isDefined && parsedRequest.isPrivate.get == false) updatedBson :+= set("inviteCode", null)
     if (parsedRequest.imageUrl.isDefined) updatedBson :+= set("inviteCode", parsedRequest.imageUrl.get)
 
     if (updatedBson.nonEmpty) {
@@ -156,7 +162,7 @@ class RoomService(implicit val redis: Redis,
             Some(exception.getMessage)
           ).getExceptionInfo
 
-          publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.UpdateRoomResponse.routingKey, exchange = "X:mounty-api-out")
+          publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
       }
     } else {
       val reply = write(UpdateRoomResponseBody(false))

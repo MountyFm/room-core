@@ -5,22 +5,21 @@ import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
 import kz.mounty.fm.amqp.{AmqpConsumer, RabbitMQConnection}
 import kz.mounty.fm.domain.room.{Room, RoomStatus}
-import kz.mounty.fm.domain.user.{RoomUser, UserProfile}
+import kz.mounty.fm.domain.user.{RoomUser, RoomUserType, UserProfile}
 import kz.mounty.fm.serializers.{JodaCodec, Serializers}
 import org.bson.codecs.configuration.CodecRegistries
 import org.bson.codecs.configuration.CodecRegistries.{fromProviders, fromRegistries}
-import org.json4s.Serialization
 import org.mongodb.scala.{MongoClient, MongoCollection, MongoDatabase}
 import org.mongodb.scala.MongoClient.DEFAULT_CODEC_REGISTRY
 import org.mongodb.scala.bson.codecs.Macros._
 import scredis.Redis
-import services.{PlayerService, RoomService}
+import services.{PlayerService, RoomService, RoomUserService}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.DurationInt
 import scala.util.{Failure, Success}
 
-object Boot extends App with Serializers{
+object Boot extends App with Serializers {
   implicit val config: Config = ConfigFactory.load()
   implicit val system: ActorSystem = ActorSystem("mounty-room-core")
   implicit val mat: Materializer = Materializer(system)
@@ -28,7 +27,7 @@ object Boot extends App with Serializers{
   implicit val timeout: Timeout = Timeout(5.seconds)
 
   val codecRegistry = fromRegistries(
-    fromProviders(classOf[Room], classOf[RoomStatus]),
+    fromProviders(classOf[Room], classOf[RoomStatus], classOf[RoomUser], classOf[RoomUserType]),
     CodecRegistries.fromCodecs(new JodaCodec()),
     DEFAULT_CODEC_REGISTRY)
 
@@ -97,6 +96,7 @@ object Boot extends App with Serializers{
   implicit val publisher: ActorRef = system.actorOf(AmqpPublisherActor.props(channel))
   implicit val playerService: PlayerService = new PlayerService()
   implicit val roomService: RoomService = new RoomService()
+  implicit val roomUserService: RoomUserService = new RoomUserService()
   val listener: ActorRef = system.actorOf(AmqpListenerActor.props())
   channel.basicConsume("Q:mounty-room-core-request-queue", AmqpConsumer(listener))
   channel.basicConsume("Q:mounty-room-core-response-queue", AmqpConsumer(listener))

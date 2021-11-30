@@ -2,24 +2,26 @@ package actors
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.util.Timeout
-import kz.mounty.fm.amqp.messages.MountyMessages.{RoomCore, SpotifyGateway}
-import kz.mounty.fm.amqp.messages.{AMQPMessage, MountyMessages}
-import kz.mounty.fm.domain.requests.{GetPlaylistTracksGatewayRequestBody, GetRoomAndRoomTracksRequestBody}
+import kz.mounty.fm.amqp.messages.MountyMessages.{MountyApi, RoomCore, SpotifyGateway}
+import kz.mounty.fm.amqp.messages.AMQPMessage
+import kz.mounty.fm.domain.requests._
+import kz.mounty.fm.domain.user.RoomUserType
+import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ServerErrorRequestException}
 import kz.mounty.fm.serializers.Serializers
+import org.json4s.jackson.Serialization.write
 import org.json4s.native.JsonMethods.parse
-import org.json4s.native.Serialization._
-import services.{PlayerService, RoomService}
+import services.{PlayerService, RoomService, RoomUserService}
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.DurationInt
 
 
 object AmqpListenerActor {
-  def props()(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService): Props =
+  def props()(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService, roomUserService: RoomUserService): Props =
     Props(new AmqpListenerActor())
 }
 
-class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService)
+class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publisher: ActorRef, playerService: PlayerService, roomService: RoomService, roomUserService: RoomUserService)
   extends Actor
     with ActorLogging
     with Serializers {
@@ -62,11 +64,31 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
         case RoomCore.GetCurrentUserRoomsRequest.routingKey =>
           roomService.getCurrentUserRooms(amqpMessage)
         case RoomCore.GetCurrentUserRoomsGatewayResponse.routingKey =>
-          roomService.saveRooms(amqpMessage)
+          roomService.saveRoomsAndCreateRoomUser(amqpMessage, roomUserService)
         case RoomCore.GetRoomByInviteCodeRequest.routingKey =>
           roomService.getRoomByInviteCode(amqpMessage)
         case RoomCore.UpdateRoomRequest.routingKey =>
           roomService.updateRoom(amqpMessage)
+        case RoomCore.GetRoomUsersRequest.routingKey =>
+          roomUserService.getRoomUsersByRoomId(amqpMessage)
+        case RoomCore.GetRoomUserByIdRequest.routingKey =>
+          roomUserService.getRoomUserById(amqpMessage)
+        case RoomCore.UpdateRoomUserRequest.routingKey =>
+          roomUserService.updateRoomUser(amqpMessage)
+        case RoomCore.CreateRoomUserIfNotExistRequest.routingKey =>
+          val request = parse(amqpMessage.entity).extract[CreateRoomUserIfNotExistRequestBody]
+          roomUserService.createRoomUserIfNotExist(request.profileId, request.roomId, RoomUserType.ORDINARY).map { roomUser =>
+            publisher ! amqpMessage.copy(
+              entity = write(CreateRoomUserIfNotExistResponseBody(roomUser)),
+              routingKey = MountyApi.CreateRoomUserIfNotExistResponse.routingKey, exchange = "X:mounty-api-out")
+          } recover {
+            case exception: Throwable =>
+              val error = ServerErrorRequestException(
+                ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+                Some(exception.getMessage)
+              ).getExceptionInfo
+              publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
+          }
         case _ =>
           log.info("something else")
       }
