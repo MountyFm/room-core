@@ -6,7 +6,7 @@ import kz.mounty.fm.amqp.messages.AMQPMessage
 import kz.mounty.fm.amqp.messages.MountyMessages.MountyApi
 import kz.mounty.fm.domain.requests.{UpdateRoomRequestBody, _}
 import kz.mounty.fm.amqp.messages.MountyMessages.SpotifyGateway
-import kz.mounty.fm.domain.room.Room
+import kz.mounty.fm.domain.room.{Room, RoomStatus}
 import kz.mounty.fm.domain.user.{RoomUser, RoomUserType}
 import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ExceptionInfo, MountyException, ServerErrorRequestException}
 import kz.mounty.fm.serializers.Serializers
@@ -15,7 +15,7 @@ import org.json4s.Formats
 import org.json4s.jackson.Serialization._
 import org.json4s.native.JsonMethods._
 import org.mongodb.scala.MongoCollection
-import org.mongodb.scala.model.Filters.equal
+import org.mongodb.scala.model.Filters.{and, equal}
 import repositories.RoomRepository
 import scredis.Redis
 import org.mongodb.scala.model.Updates.set
@@ -35,7 +35,7 @@ class RoomService(implicit val redis: Redis,
 
   def getRoomsForExplore(amqpMessage: AMQPMessage) = {
     val size = parse(amqpMessage.entity).extract[GetRoomsForExploreRequestBody].size
-    roomRepository.roomsBySizeAndFilter(size).onComplete {
+    roomRepository.roomsBySizeAndFilter(size, and(equal("status", RoomStatus.ACTIVE), equal("isPrivate", false))).onComplete {
       case Success(value) =>
         val body = GetRoomsForExploreResponseBody(value)
         publisher ! amqpMessage.copy(entity = write(body), exchange = "X:mounty-api-out", routingKey = MountyApi.GetRoomsForExploreResponse.routingKey)
