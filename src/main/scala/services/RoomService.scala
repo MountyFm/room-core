@@ -4,11 +4,11 @@ import akka.actor.ActorRef
 import akka.util.Timeout
 import kz.mounty.fm.amqp.messages.AMQPMessage
 import kz.mounty.fm.amqp.messages.MountyMessages.MountyApi
-import kz.mounty.fm.domain.requests._
+import kz.mounty.fm.domain.requests.{UpdateRoomRequestBody, _}
 import kz.mounty.fm.amqp.messages.MountyMessages.SpotifyGateway
 import kz.mounty.fm.domain.room.Room
 import kz.mounty.fm.domain.user.{RoomUser, RoomUserType}
-import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ExceptionInfo, ServerErrorRequestException}
+import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ExceptionInfo, MountyException, ServerErrorRequestException}
 import kz.mounty.fm.serializers.Serializers
 import org.bson.conversions.Bson
 import org.json4s.Formats
@@ -144,29 +144,58 @@ class RoomService(implicit val redis: Redis,
   def updateRoom(amqpMessage: AMQPMessage) = {
     val parsedRequest = parse(amqpMessage.entity).extract[UpdateRoomRequestBody]
 
-    var updatedBson: Seq[Bson] = Seq()
-    if (parsedRequest.title.isDefined) updatedBson :+= set("title", parsedRequest.title.get)
-    if (parsedRequest.isPrivate.isDefined) updatedBson :+= set("isPrivate", parsedRequest.isPrivate.get)
-    if (parsedRequest.inviteCode.isDefined) updatedBson :+= set("inviteCode", parsedRequest.inviteCode.get)
-    if (parsedRequest.isPrivate.isDefined && parsedRequest.isPrivate.get == false) updatedBson :+= set("inviteCode", null)
-    if (parsedRequest.imageUrl.isDefined) updatedBson :+= set("inviteCode", parsedRequest.imageUrl.get)
+    def checkIfInviteCodeIsDefinedAndInUse(inviteCode: Option[String]): Future[Unit] = {
+      if (inviteCode.isDefined) {
+        roomRepository.findByFilter[Room](equal("inviteCode", inviteCode.get)).map {
+          case Some(_) =>
+            val error = ServerErrorRequestException(
+              ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+              Some("this invite code is already in use")
+            )
+            throw error
+          case None => //skip
+        }
+      } else Future {}
+    }
 
-    if (updatedBson.nonEmpty) {
-      roomRepository.updateOneByFilter[Room](equal("id", parsedRequest.id), updatedBson).onComplete {
-        case Success(value) =>
-          val reply = write(UpdateRoomResponseBody(value))
-          publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.UpdateRoomResponse.routingKey, exchange = "X:mounty-api-out")
-        case Failure(exception) =>
-          val error = ServerErrorRequestException(
-            ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
-            Some(exception.getMessage)
-          ).getExceptionInfo
+    def prepare(request: UpdateRoomRequestBody): Future[Seq[Bson]] = Future {
+      var updatedBson: Seq[Bson] = Seq()
 
-          publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
-      }
-    } else {
-      val reply = write(UpdateRoomResponseBody(false))
-      publisher ! amqpMessage.copy(entity = reply, routingKey = MountyApi.UpdateRoomResponse.routingKey, exchange = "X:mounty-api-out")
+      if (request.title.isDefined) updatedBson :+= set("title", request.title.get)
+      if (request.isPrivate.isDefined) updatedBson :+= set("isPrivate", request.isPrivate.get)
+      if (request.inviteCode.isDefined) updatedBson :+= set("inviteCode", request.inviteCode.get)
+      if (request.isPrivate.isDefined && parsedRequest.isPrivate.get == false) updatedBson :+= set("inviteCode", null)
+      if (request.imageUrl.isDefined) updatedBson :+= set("inviteCode", request.imageUrl.get)
+
+      updatedBson
+    }
+
+    def process(updatedBson: Seq[Bson]): Future[Boolean] = {
+      if (updatedBson.nonEmpty) {
+        roomRepository.updateOneByFilter[Room](equal("id", parsedRequest.id), updatedBson)
+      } else Future(false)
+    }
+
+    (for {
+      _ <- checkIfInviteCodeIsDefinedAndInUse(parsedRequest.inviteCode)
+      preparedBson <- prepare(parsedRequest)
+      isUpdated <- process(preparedBson)
+    } yield
+      publisher ! amqpMessage.copy(
+        entity = write(UpdateRoomResponseBody(isUpdated)),
+        routingKey = MountyApi.UpdateRoomResponse.routingKey,
+        exchange = "X:mounty-api-out")
+      ) recover {
+      case exception: Throwable =>
+        val error = exception match {
+          case e: MountyException => e.getExceptionInfo
+          case _ =>
+            ServerErrorRequestException(
+              ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+              Some(exception.getMessage)
+            ).getExceptionInfo
+        }
+        publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
     }
   }
 

@@ -1,6 +1,5 @@
 package repositories
 
-import kz.mounty.fm.domain.chat.RoomMessage
 import kz.mounty.fm.domain.room.{Room, RoomStatus}
 import kz.mounty.fm.repository.BaseRepository
 import org.mongodb.scala.MongoCollection
