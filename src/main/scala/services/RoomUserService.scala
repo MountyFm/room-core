@@ -66,7 +66,7 @@ class RoomUserService(implicit val redis: Redis,
   def getRoomUserById(amqpMessage: AMQPMessage): Unit = {
     val roomUserId = parse(amqpMessage.entity).extract[GetRoomUserByIdRequestBody].id
 
-    roomUserRepository.findByFilter[RoomUser](equal("id", roomUserId)).map {
+    roomUserRepository.findByFilter[RoomUser](equal("profileId", roomUserId)).map {
       case Some(roomUser) =>
         val response = GetRoomUserByIdResponseBody(roomUser)
         publisher ! amqpMessage.copy(entity = write(response), routingKey = MountyApi.GetRoomUserByIdResponse.routingKey, exchange = "X:mounty-api-out")
