@@ -37,7 +37,7 @@ class PlayerService(implicit val redis: Redis,
 
     (for {
       roomUsers <- roomUserRepository.findAllByFilter[RoomUser](equal("roomId", roomId))
-      activeUsers <- Future(roomUsers.filter(_.`type` != RoomUserType.NOT_ACTIVE))
+      activeUsers <- Future(roomUsers.filter(_.isActive == true))
     } yield {
       activeUsers.foreach { user =>
         amqpMessage.routingKey match {

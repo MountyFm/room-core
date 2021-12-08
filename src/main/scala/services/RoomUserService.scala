@@ -40,7 +40,8 @@ class RoomUserService(implicit val redis: Redis,
           id = UUID.randomUUID().toString,
           profileId = profileId,
           roomId = roomId,
-          `type` = `type`
+          `type` = `type`,
+          isActive = true
         )
         roomUserRepository.create[RoomUser](newRoomUser)
     }
@@ -93,6 +94,7 @@ class RoomUserService(implicit val redis: Redis,
 
     var updatedBson: Seq[Bson] = Seq()
     if (parsedRequest.`type`.isDefined) updatedBson :+= set("type", parsedRequest.`type`.get)
+    if (parsedRequest.isActive.isDefined) updatedBson :+= set("isActive", parsedRequest.isActive.get)
 
     if (updatedBson.nonEmpty) {
       roomUserRepository.updateOneByFilter[RoomUser](equal("id", parsedRequest.id), updatedBson).onComplete {

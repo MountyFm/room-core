@@ -83,9 +83,10 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
               routingKey = MountyApi.CreateRoomUserIfNotExistResponse.routingKey, exchange = "X:mounty-api-out")
           } recover {
             case exception: Throwable =>
+              exception.printStackTrace()
               val error = ServerErrorRequestException(
                 ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
-                Some(exception.getMessage)
+                Some(exception.getCause.getMessage)
               ).getExceptionInfo
               publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
           }

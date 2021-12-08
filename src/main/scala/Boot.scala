@@ -6,7 +6,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import kz.mounty.fm.amqp.{AmqpConsumer, RabbitMQConnection}
 import kz.mounty.fm.domain.room.{Room, RoomStatus}
 import kz.mounty.fm.domain.user.{RoomUser, RoomUserType, UserProfile}
-import kz.mounty.fm.serializers.{JodaCodec, Serializers}
+import kz.mounty.fm.serializers.{JodaCodec, RoomUserTypeCodec, Serializers}
 import org.bson.codecs.configuration.CodecRegistries
 import org.bson.codecs.configuration.CodecRegistries.{fromProviders, fromRegistries}
 import org.mongodb.scala.{MongoClient, MongoCollection, MongoDatabase}
@@ -24,11 +24,11 @@ object Boot extends App with Serializers {
   implicit val system: ActorSystem = ActorSystem("mounty-room-core")
   implicit val mat: Materializer = Materializer(system)
   implicit val ex: ExecutionContext = system.dispatcher
-  implicit val timeout: Timeout = Timeout(5.seconds)
+  implicit val timeout: Timeout = Timeout(60.seconds)
 
   val codecRegistry = fromRegistries(
     fromProviders(classOf[Room], classOf[RoomStatus], classOf[RoomUser], classOf[RoomUserType]),
-    CodecRegistries.fromCodecs(new JodaCodec()),
+    CodecRegistries.fromCodecs(new JodaCodec(), new RoomUserTypeCodec()),
     DEFAULT_CODEC_REGISTRY)
 
   val client: MongoClient = MongoClient(config.getString("mongo.url"))
