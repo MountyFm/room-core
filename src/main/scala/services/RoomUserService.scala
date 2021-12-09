@@ -34,7 +34,14 @@ class RoomUserService(implicit val redis: Redis,
 
   def createRoomUserIfNotExist(profileId: String, roomId: String, `type`: RoomUserType): Future[RoomUser] = {
     roomUserRepository.findByFilter[RoomUser](and(equal("profileId", profileId), equal("roomId", roomId))).flatMap {
-      case Some(roomUser) => Future(roomUser)
+      case Some(roomUser) =>
+        var updatedBson: Seq[Bson] = Seq()
+        updatedBson :+= set("isActive", true)
+        roomUserRepository.updateOneByFilter[RoomUser](equal("id", roomUser.id), updatedBson).onComplete {
+          case Success(updated) =>
+          case Failure(exception) =>
+        }
+        Future(roomUser.copy(isActive = true))
       case None =>
         val newRoomUser = RoomUser(
           id = UUID.randomUUID().toString,
