@@ -15,6 +15,7 @@ import org.mongodb.scala.model.Filters.{and, equal}
 import repositories.{RoomRepository, RoomUserRepository}
 import scredis.Redis
 
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 
 class PlayerService(implicit val redis: Redis,
@@ -37,9 +38,12 @@ class PlayerService(implicit val redis: Redis,
 
     (for {
       roomUsers <- roomUserRepository.findAllByFilter[RoomUser](equal("roomId", roomId))
-      activeUsers <- Future(roomUsers.filter(_.isActive == true))
+      activeUsers <- Future(roomUsers.filter(_.isActive == true).toArray[RoomUser])
     } yield {
-      activeUsers.foreach { user =>
+      var i = 0
+      val s = activeUsers.size
+      while(i < s) {
+        val user = activeUsers(i)
         amqpMessage.routingKey match {
           case RoomCore.PauseSong.routingKey =>
             val request = write(PlayerPauseGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
@@ -58,6 +62,7 @@ class PlayerService(implicit val redis: Redis,
             val request = write(PlayerPlayGatewayCommandBody(deviceId = None, tokenKey = user.profileId, contextUri = body.contextUri, offset = body.offset))
             publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPlayGatewayCommand.routingKey, amqpMessage.actorPath)
         }
+        i += 1
       }
       amqpMessage.routingKey match {
         case RoomCore.PauseSong.routingKey =>
