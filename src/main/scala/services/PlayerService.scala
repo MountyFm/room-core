@@ -17,6 +17,7 @@ import scredis.Redis
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
 
 class PlayerService(implicit val redis: Redis,
                     publisher: ActorRef,
@@ -38,32 +39,36 @@ class PlayerService(implicit val redis: Redis,
 
     (for {
       roomUsers <- roomUserRepository.findAllByFilter[RoomUser](equal("roomId", roomId))
-      activeUsers <- Future(roomUsers.filter(_.isActive == true).toArray[RoomUser])
+      activeUsers <- Future(roomUsers.filter(_.isActive == true))
     } yield {
-      var i = 0
-      val s = activeUsers.size
-      while(i < s) {
-        val user = activeUsers(i)
-        amqpMessage.routingKey match {
-          case RoomCore.PauseSong.routingKey =>
-            val request = write(PlayerPauseGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
-            publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPauseGatewayCommand.routingKey, amqpMessage.actorPath)
 
-          case RoomCore.PlayPrevTrack.routingKey =>
-            val request = write(PlayerPrevGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
-            publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPrevGatewayCommand.routingKey, amqpMessage.actorPath)
+      Future.sequence(
+        activeUsers.map(user => Future{
+          amqpMessage.routingKey match {
+            case RoomCore.PauseSong.routingKey =>
+              val request = write(PlayerPauseGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
+              publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPauseGatewayCommand.routingKey, amqpMessage.actorPath)
 
-          case RoomCore.PlayNextTrack.routingKey =>
-            val request = write(PlayerNextGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
-            publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerNextGatewayCommand.routingKey, amqpMessage.actorPath)
+            case RoomCore.PlayPrevTrack.routingKey =>
+              val request = write(PlayerPrevGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
+              publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPrevGatewayCommand.routingKey, amqpMessage.actorPath)
 
-          case RoomCore.PlaySong.routingKey =>
-            val body = parse(amqpMessage.entity).extract[PlaySongCommandBody]
-            val request = write(PlayerPlayGatewayCommandBody(deviceId = None, tokenKey = user.profileId, contextUri = body.contextUri, offset = body.offset))
-            publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPlayGatewayCommand.routingKey, amqpMessage.actorPath)
-        }
-        i += 1
+            case RoomCore.PlayNextTrack.routingKey =>
+              val request = write(PlayerNextGatewayCommandBody(deviceId = None, tokenKey = user.profileId))
+              publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerNextGatewayCommand.routingKey, amqpMessage.actorPath)
+
+            case RoomCore.PlaySong.routingKey =>
+              val body = parse(amqpMessage.entity).extract[PlaySongCommandBody]
+              val request = write(PlayerPlayGatewayCommandBody(deviceId = None, tokenKey = user.profileId, contextUri = body.contextUri, offset = body.offset))
+              publisher ! AMQPMessage(request, "X:mounty-spotify-gateway-in", SpotifyGateway.PlayerPlayGatewayCommand.routingKey, amqpMessage.actorPath)
+          }
+        })
+      ).onComplete {
+        case Success(value) =>
+          println("Done")
+        case Failure(exception) => println(exception.getMessage)
       }
+
       amqpMessage.routingKey match {
         case RoomCore.PauseSong.routingKey =>
           publisher ! amqpMessage.copy(entity = write(PauseSongResponseBody()), routingKey = MountyApi.PauseSongResponse.routingKey, exchange = "X:mounty-api-out")

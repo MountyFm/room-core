@@ -1,6 +1,6 @@
 package services
 
-import akka.actor.ActorRef
+import akka.actor.{ActorLogging, ActorRef}
 import akka.util.Timeout
 import kz.mounty.fm.amqp.messages.AMQPMessage
 import kz.mounty.fm.amqp.messages.MountyMessages.MountyApi
@@ -29,7 +29,7 @@ class RoomUserService(implicit val redis: Redis,
                       formats: Formats,
                       roomCol: MongoCollection[Room],
                       userRoomCol: MongoCollection[RoomUser],
-                      timeout: Timeout) extends Serializers {
+                      timeout: Timeout) extends Serializers{
   val roomUserRepository = new RoomUserRepository
 
   def createRoomUserIfNotExist(profileId: String, roomId: String, `type`: RoomUserType): Future[RoomUser] = {
