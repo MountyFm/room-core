@@ -70,7 +70,7 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
         case RoomCore.UpdateRoomRequest.routingKey =>
           roomService.updateRoom(amqpMessage)
         case RoomCore.GetRoomUsersRequest.routingKey =>
-          roomUserService.getRoomUsersByRoomId(amqpMessage)
+          roomUserService.getRoomUsers(amqpMessage)
         case RoomCore.GetRoomUserByIdRequest.routingKey =>
           roomUserService.getRoomUserById(amqpMessage)
         case RoomCore.UpdateRoomUserRequest.routingKey =>
