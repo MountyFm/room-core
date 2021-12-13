@@ -141,22 +141,35 @@ class RoomService(implicit val redis: Redis,
     }
   }
 
+  def makeRoomPrivate(amqpMessage: AMQPMessage) = {
+    val entity = parse(amqpMessage.entity).extract[MakeRoomPrivateRequestBody]
+
+    val inviteCode = entity.roomId.substring(0,4) + "-" + entity.inviteCode
+
+    val updatedBson: Seq[Bson] = Seq(set("inviteCode", inviteCode), set("isPrivate", true))
+    roomRepository.updateOneByFilter[Room](equal("id", entity.roomId),updatedBson)
+      .onComplete {
+        case Success(value) =>
+          publisher ! amqpMessage.copy(
+            entity = write(MakeRoomPrivateResponseBody(inviteCode)),
+            routingKey = MountyApi.MakeRoomPrivateResponse.routingKey,
+            exchange = "X:mounty-api-out"
+          )
+        case Failure(exception) =>
+          val error = exception match {
+            case e: MountyException => e.getExceptionInfo
+            case _ =>
+              ServerErrorRequestException(
+                ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
+                Some(exception.getMessage)
+              ).getExceptionInfo
+          }
+          publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
+      }
+  }
+
   def updateRoom(amqpMessage: AMQPMessage) = {
     val parsedRequest = parse(amqpMessage.entity).extract[UpdateRoomRequestBody]
-
-    def checkIfInviteCodeIsDefinedAndInUse(inviteCode: Option[String]): Future[Unit] = {
-      if (inviteCode.isDefined) {
-        roomRepository.findByFilter[Room](equal("inviteCode", inviteCode.get)).map {
-          case Some(_) =>
-            val error = ServerErrorRequestException(
-              ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
-              Some("this invite code is already in use")
-            )
-            throw error
-          case None => //skip
-        }
-      } else Future {}
-    }
 
     def prepare(request: UpdateRoomRequestBody): Future[Seq[Bson]] = Future {
       var updatedBson: Seq[Bson] = Seq()
@@ -164,7 +177,7 @@ class RoomService(implicit val redis: Redis,
       if (request.title.isDefined) updatedBson :+= set("title", request.title.get)
       if (request.isPrivate.isDefined) updatedBson :+= set("isPrivate", request.isPrivate.get)
       if (request.inviteCode.isDefined) updatedBson :+= set("inviteCode", request.inviteCode.get)
-      if (request.isPrivate.isDefined && parsedRequest.isPrivate.get == false) updatedBson :+= set("inviteCode", null)
+      if (request.isPrivate.isDefined && !parsedRequest.isPrivate.get) updatedBson :+= set("inviteCode", null)
       if (request.imageUrl.isDefined) updatedBson :+= set("inviteCode", request.imageUrl.get)
 
       updatedBson
@@ -177,7 +190,6 @@ class RoomService(implicit val redis: Redis,
     }
 
     (for {
-      _ <- checkIfInviteCodeIsDefinedAndInUse(parsedRequest.inviteCode)
       preparedBson <- prepare(parsedRequest)
       isUpdated <- process(preparedBson)
     } yield

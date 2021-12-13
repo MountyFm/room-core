@@ -90,6 +90,8 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
               ).getExceptionInfo
               publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
           }
+        case RoomCore.MakeRoomPrivateRequest.routingKey =>
+          roomService.makeRoomPrivate(amqpMessage)
         case _ =>
           log.info("something else")
       }
