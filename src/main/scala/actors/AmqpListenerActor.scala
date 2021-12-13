@@ -8,8 +8,8 @@ import kz.mounty.fm.domain.requests._
 import kz.mounty.fm.domain.user.RoomUserType
 import kz.mounty.fm.exceptions.{ErrorCodes, ErrorSeries, ServerErrorRequestException}
 import kz.mounty.fm.serializers.Serializers
+import org.json4s.jackson.JsonMethods.parse
 import org.json4s.jackson.Serialization.write
-import org.json4s.native.JsonMethods.parse
 import services.{PlayerService, RoomService, RoomUserService}
 
 import scala.concurrent.ExecutionContext
@@ -93,7 +93,13 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
         case RoomCore.GetCurrentlyPlayingTrackRequest.routingKey =>
           playerService.getCurrentlyPlayingTrack(amqpMessage)
         case RoomCore.GetCurrentlyPlayingTrackGatewayResponse.routingKey =>
-          playerService.handleGetCurrentlyPlayingTrackGatewayResponse(amqpMessage)
+          try {
+            val gatewayResponse = parse(amqpMessage.entity).extract[GetCurrentlyPlayingTrackGatewayResponseBody]
+            publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(Some(gatewayResponse.track))), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
+          } catch {
+            case _: Throwable =>
+              publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(None)), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
+          }
         case RoomCore.MakeRoomPrivateRequest.routingKey =>
           roomService.makeRoomPrivate(amqpMessage)
         case _ =>

@@ -95,14 +95,4 @@ class PlayerService(implicit val redis: Redis,
     val tokenKey = parse(amqpMessage.entity).extract[GetCurrentlyPlayingTrackRequestBody].tokenKey
     publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackGatewayRequestBody(tokenKey)), routingKey = SpotifyGateway.GetCurrentlyPlayingTrackGatewayRequest.routingKey, exchange = "X:mounty-spotify-gateway-in")
   }
-
-  def handleGetCurrentlyPlayingTrackGatewayResponse(amqpMessage: AMQPMessage): Unit = {
-    try {
-      val gatewayResponse = parse(amqpMessage.entity).extract[GetCurrentlyPlayingTrackGatewayResponseBody]
-      publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(Some(gatewayResponse.track))), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
-    } catch {
-      case _: Throwable =>
-        publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(None)), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
-    }
-  }
 }
