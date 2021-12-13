@@ -99,17 +99,10 @@ class PlayerService(implicit val redis: Redis,
   def handleGetCurrentlyPlayingTrackGatewayResponse(amqpMessage: AMQPMessage): Unit = {
     try {
       val gatewayResponse = parse(amqpMessage.entity).extract[GetCurrentlyPlayingTrackGatewayResponseBody]
-      publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(gatewayResponse.track, gatewayResponse.progressMs)), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
+      publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(Some(gatewayResponse.track))), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
     } catch {
-      case _: org.json4s.MappingException =>
-        val exceptionInfo = parse(amqpMessage.entity).extract[ExceptionInfo]
-        publisher ! amqpMessage.copy(entity = write(exceptionInfo), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
-      case _ =>
-        val error = ServerErrorRequestException(
-          ErrorCodes.INTERNAL_SERVER_ERROR(ErrorSeries.ROOM_CORE),
-          Some("something went wrong while getting currently playing track")
-        ).getExceptionInfo
-        publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
+      case _: Throwable =>
+        publisher ! amqpMessage.copy(entity = write(GetCurrentlyPlayingTrackResponseBody(None)), routingKey = MountyApi.GetCurrentlyPlayingTrackResponse.routingKey, exchange = "X:mounty-api-out")
     }
   }
 }
