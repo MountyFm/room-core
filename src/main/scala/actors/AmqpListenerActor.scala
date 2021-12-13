@@ -90,6 +90,10 @@ class AmqpListenerActor(implicit system: ActorSystem, ex: ExecutionContext, publ
               ).getExceptionInfo
               publisher ! amqpMessage.copy(entity = write(error), routingKey = MountyApi.Error.routingKey, exchange = "X:mounty-api-out")
           }
+        case RoomCore.GetCurrentlyPlayingTrackRequest.routingKey =>
+          playerService.getCurrentlyPlayingTrack(amqpMessage)
+        case RoomCore.GetCurrentlyPlayingTrackGatewayResponse.routingKey =>
+          playerService.handleGetCurrentlyPlayingTrackGatewayResponse(amqpMessage)
         case RoomCore.MakeRoomPrivateRequest.routingKey =>
           roomService.makeRoomPrivate(amqpMessage)
         case _ =>
